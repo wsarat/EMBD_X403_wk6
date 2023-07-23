@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 const SelectList = ({ data, selectedOption, onChange }) => {
   return (
     <div>
-      <label htmlFor="selectList">Select an option:</label>
+      <div>
+        <label htmlFor="selectList">Access Point</label>
+      </div>
       <select id="selectList" value={selectedOption} onChange={onChange}>
         <option value="">Select an option</option>
         {data.map((option) => (
@@ -20,6 +22,10 @@ const SelectList = ({ data, selectedOption, onChange }) => {
 
 const App = () => {
   const [data, setData] = useState([]);
+  /*
+  This line declares a state variable data with an initial value of an empty array, 
+  and it also creates a state update function setData that can be used to update the value of the data state variable.
+  */
   const [selectedOption, setSelectedOption] = useState('');
 
   useEffect(() => {
@@ -42,12 +48,8 @@ const App = () => {
 
   return (
     <div>
-      <h1>Sample App</h1>
-      {data.length > 0 ? (
-        <SelectList data={data.ap_list} selectedOption={selectedOption} onChange={handleSelectChange} />
-      ) : (
-        <p>Loading data...</p>
-      )}
+      <h1>EMBD.X403 wk6</h1>
+        <SelectList data={data} selectedOption={selectedOption} onChange={handleSelectChange} />
     </div>
   );
 };

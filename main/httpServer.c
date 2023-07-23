@@ -28,6 +28,7 @@ static const httpd_uri_t root = {
 */
 
 static esp_err_t on_api_scan( httpd_req_t *req ) {
+    printf("httd Request: on_api_scan");
     uint16_t ap_count = 8; //will ne changed after wifi_scan called
     wifi_ap_record_t ap_list[ap_count];
     wifi_scan(&ap_list, &ap_count);
@@ -57,6 +58,7 @@ static esp_err_t on_api_scan( httpd_req_t *req ) {
     }
 
     httpd_resp_send_chunk(req, NULL, 0); // end chunk
+    printf("httd Request: on_api_scan : done");
     return ESP_OK;
 }
 
@@ -128,7 +130,7 @@ static esp_err_t on_default_url( httpd_req_t *req ) {
     struct stat file_stat;
     esp_err_t err = ESP_OK;
 
-	//ESP_LOGI(HTTPSERVER_TAG, "URL: %s", req->uri);
+	ESP_LOGI(HTTPSERVER_TAG, "URL: %s", req->uri);
 	strncpy( filepath, req->uri, sizeof( filepath ) );
 
 	// removes base_path and REST 
@@ -244,7 +246,7 @@ static httpd_handle_t start_webserver(void)
         .uri = "/api/scan",
         .method = HTTP_GET,
         .handler = on_api_scan,
-        .user_ctx = server_data
+        //.user_ctx = server_data
     };
     httpd_register_uri_handler(server, &api_scan);
 
