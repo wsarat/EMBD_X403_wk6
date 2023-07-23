@@ -1,5 +1,4 @@
 import './App.css';
-
 import React, { useState, useEffect } from 'react';
 
 const SelectList = ({ data, selectedOption, onChange }) => {
@@ -9,8 +8,8 @@ const SelectList = ({ data, selectedOption, onChange }) => {
       <select id="selectList" value={selectedOption} onChange={onChange}>
         <option value="">Select an option</option>
         {data.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
+          <option key={option.id} value={option.bssid}>
+            {option.ssid} ({option.bssid})
           </option>
         ))}
       </select>
@@ -26,9 +25,9 @@ const App = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch('https://api.example.com/data');
+        const response = await fetch('http://esp32.local/api/scan');
         const data = await response.json();
-        setData(data);
+        setData(data.ap_list);
       } catch (error) {
         console.error('Error fetching data:', error);
       }
@@ -45,7 +44,7 @@ const App = () => {
     <div>
       <h1>Sample App</h1>
       {data.length > 0 ? (
-        <SelectList data={data} selectedOption={selectedOption} onChange={handleSelectChange} />
+        <SelectList data={data.ap_list} selectedOption={selectedOption} onChange={handleSelectChange} />
       ) : (
         <p>Loading data...</p>
       )}

@@ -6,6 +6,8 @@
 
 static const char *HTTPSERVER_TAG = "httpServer";
 
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+
 /* An HTTP GET handler */
 /*
 static esp_err_t root_get_handler(httpd_req_t *req)
@@ -24,6 +26,39 @@ static const httpd_uri_t root = {
     .handler   = root_get_handler
 };
 */
+
+static esp_err_t on_api_scan( httpd_req_t *req ) {
+    uint16_t ap_count = 8; //will ne changed after wifi_scan called
+    wifi_ap_record_t ap_list[ap_count];
+    wifi_scan(&ap_list, &ap_count);
+    char buf[128];
+    esp_err_t err = ESP_OK;
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "text/json");
+
+    for (int i=0; i<ap_count; i++) {
+        snprintf(buf, 128, 
+"%s\
+{\
+    \"id\" : %d,\
+    \"bssid\": \"%02X:%02X:%02X:%02X:%02X:%02X\",\
+    \"ssid\": \"%s\"\
+}%s\
+%s", 
+            (i==0)? "{\"ap_list\": [\n":"", // start print { to start json data
+            i,
+            ap_list[i].bssid[0], ap_list[i].bssid[1], ap_list[i].bssid[2], ap_list[i].bssid[3], ap_list[i].bssid[4], ap_list[i].bssid[5],
+            ap_list[i].ssid, (i+1 == ap_count)? "":",", // add comma if not the last item
+            (i+1 == ap_count)? "]}":""
+            );
+        err = httpd_resp_send_chunk(req, buf, strlen(buf));
+        ESP_LOGI(HTTPSERVER_TAG, "send chunk %d %s: %s", i, (err==ESP_OK)? "OK":"Failed", buf);
+    }
+
+    httpd_resp_send_chunk(req, NULL, 0); // end chunk
+    return ESP_OK;
+}
 
 #define IS_FILE_EXT(filename, ext) \
     (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
@@ -204,6 +239,14 @@ static httpd_handle_t start_webserver(void)
     // Set URI handlers
     ESP_LOGI(HTTPSERVER_TAG, "Registering URI handlers");
     //httpd_register_uri_handler(server, &root);
+
+    httpd_uri_t api_scan = {
+        .uri = "/api/scan",
+        .method = HTTP_GET,
+        .handler = on_api_scan,
+        .user_ctx = server_data
+    };
+    httpd_register_uri_handler(server, &api_scan);
 
     httpd_uri_t default_url = {
         .uri = "/*",
