@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(EMBD_X403_wk6)
 
-set( WEB_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web-app")
+set( WEB_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web-react")
 
 add_custom_command( TARGET app
     PRE_BUILD
