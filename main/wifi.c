@@ -1,4 +1,5 @@
 #include "wifi.h"
+#include "storage.h"
 
 static const char *WIFI_TAG = "wifi";
 static int s_retry_num = 0;
@@ -13,11 +14,35 @@ static EventGroupHandle_t s_wifi_event_group;
 
 #define DEFAULT_SCAN_LIST_SIZE 10
 
-void start_mdns_service(){
-  mdns_init();
-  mdns_hostname_set( "ESP32" );
-  ESP_LOGI(WIFI_TAG, "MDNS name: ESP32");
-  mdns_instance_name_set("ESP32_instance");
+void get_device_name(char *device_name) {
+    esp_err_t ret = ESP_FAIL;
+    const uint8_t mac[6];    
+
+    ret = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (ret) {
+        ESP_LOGE(WIFI_TAG, "esp_read_mac error!");
+        sprintf(device_name, "esp32-unknown");   
+    }
+    
+    sprintf(device_name, "esp32-%x%x", mac[4], mac[5]);    
+
+    return;
+}
+
+void start_mdns_service() {
+    esp_err_t ret = ESP_FAIL;
+    char mdns_name[16];
+    get_device_name(mdns_name);
+
+    ret = mdns_init();
+    if (ret) 
+        ESP_LOGE(WIFI_TAG, "mdns_init error!");
+
+    ret = mdns_hostname_set(mdns_name);
+    if (ret) 
+        ESP_LOGE(WIFI_TAG, "mdns_hostname_set error!");
+
+    ESP_LOGI(WIFI_TAG, "mDNS name: %s", mdns_name);
 }
 
 static void event_handler(void* arg, esp_event_base_t event_base,
@@ -35,17 +60,20 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         }
         ESP_LOGI(WIFI_TAG,"connect to the AP fail");
 
-        httpServer_stop();
-
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(WIFI_TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
 
-        start_mdns_service();
-        httpServer_start();
-        
+    } else if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+        ESP_LOGI(WIFI_TAG, "station "MACSTR" join, AID=%d",
+                 MAC2STR(event->mac), event->aid);
+    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+        ESP_LOGI(WIFI_TAG, "station "MACSTR" leave, AID=%d",
+                 MAC2STR(event->mac), event->aid);
     } else {
         ESP_LOGI(WIFI_TAG, "got event_id: %ld  unhandled", event_id);
     }
@@ -127,10 +155,23 @@ void wifi_scan(wifi_ap_record_t *ap_info, uint16_t *max) {
     // memset(ap_info, 0, sizeof(ap_info));
     uint16_t ap_count = 0;
 
-    //ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    //ESP_ERROR_CHECK(esp_wifi_start() );
+    // wifi_mode_t current_wifi_mode;
+    // esp_wifi_get_mode(&current_wifi_mode);
+    // if (current_wifi_mode == WIFI_MODE_AP)
+    //     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
+    //     ESP_ERROR_CHECK(esp_wifi_start() );
 
-    esp_wifi_scan_start(NULL, true /*block*/);
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = true,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 10,
+        .scan_time.active.max = 100        
+    };
+
+    esp_wifi_scan_start(&scan_config, true /*block*/);
     ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(max, ap_info));
     ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
     ESP_LOGI(WIFI_TAG, "Total APs scanned = %u, number = %u", ap_count, *max);
@@ -143,11 +184,14 @@ void wifi_scan(wifi_ap_record_t *ap_info, uint16_t *max) {
     //     // }
     //     ESP_LOGI(WIFI_TAG, "Channel \t\t%d", *ap_info[i]->primary);
     // }    
+    //  if (current_wifi_mode == WIFI_MODE_AP)
+    //     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP) );
 }
 
-void wifi_connect(const char* ssid, const char* password) {   
+esp_err_t wifi_connect(const char* ssid, const char* password) {   
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;
+    esp_err_t ret = ESP_FAIL;
 
     s_wifi_event_group = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
@@ -188,6 +232,12 @@ void wifi_connect(const char* ssid, const char* password) {
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(WIFI_TAG, "connected");
+
+        start_mdns_service();
+        httpServer_start();
+
+        ret = ESP_OK;
+
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(WIFI_TAG, "Failed to connect.");
     } else {
@@ -197,17 +247,89 @@ void wifi_connect(const char* ssid, const char* password) {
     /* The event will not be processed after unregister */
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_got_ip));
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_any_id));
-    vEventGroupDelete(s_wifi_event_group);    
+    vEventGroupDelete(s_wifi_event_group);   
+
+    return ret;
+}
+
+void wifi_init_ap() {
+    esp_netif_create_default_wifi_ap();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &event_handler,
+                                                        NULL,
+                                                        NULL));
+    char device_name[32];
+    get_device_name(device_name);
+
+    wifi_config_t wifi_config = {
+        .ap = {
+            //.ssid = "",
+            .ssid_len = strlen(device_name),
+            .channel = 1,
+            .password = "",
+            .max_connection = 1,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .pmf_cfg = {
+                    .required = true,
+            },
+        },
+    };
+    strncpy(&wifi_config.ap.ssid, device_name, sizeof(device_name));
+
+    if (strlen((char *)wifi_config.ap.password) == 0) {
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA/*WIFI_MODE_AP*/));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(WIFI_TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
+             device_name, wifi_config.ap.password, wifi_config.ap.channel);
+
+    start_mdns_service();
+    httpServer_start();
 }
 
 void wifi_init() {
     _netif_init();
 
-    wifi_init_config_t wifi_conf = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&wifi_conf));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
+    esp_err_t ret = ESP_FAIL;
+    bool wifi_sta_mode = 1;
+    char ssid[16];
+    char password[32];
 
+    if ( nvs_get(KEY_SSID, ssid) == ESP_OK 
+        && nvs_get(KEY_PASSWD, password) == ESP_OK ) {
+
+        ESP_LOGI(WIFI_TAG, "SSID: %s, Password: %s", ssid, password);
+        
+        if (strlen(ssid) == 0 || strlen(password) == 0 )
+            wifi_sta_mode = 0; // AP mode
+        
+    } else {
+        wifi_sta_mode = 0; // AP mode
+    }
+
+    if (wifi_sta_mode) {
+        wifi_init_config_t wifi_conf = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&wifi_conf));
+        ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL) );
+        ESP_ERROR_CHECK(esp_wifi_start() );
+
+        ret = wifi_connect(ssid, password);
+        if (ret != ESP_OK)
+            wifi_init_ap();
+
+    } else {
+        // AP mode
+        wifi_init_ap();
+    }
 }
 

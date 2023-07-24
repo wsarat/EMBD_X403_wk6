@@ -1,4 +1,7 @@
 #include "httpServer.h"
+#include "storage.h"
+#include <json_parser.h>
+#include "esp_timer.h"
 
 /* A simple example that demonstrates how to create GET and POST
  * handlers and start an HTTPS server.
@@ -26,6 +29,86 @@ static const httpd_uri_t root = {
     .handler   = root_get_handler
 };
 */
+void reboot() {
+    ESP_LOGE(HTTPSERVER_TAG, "Apply setting, Reboot!");
+    esp_restart();
+}
+
+void reboot_delay(int sec) {
+    // Create a timer to trigger the restart after 3 seconds
+    esp_timer_create_args_t timer_args = {
+        .callback = reboot,
+        .name = "restart_timer"
+    };
+    esp_timer_handle_t timer;
+    esp_timer_create(&timer_args, &timer);
+    esp_timer_start_once(timer, sec * 1000000);
+}
+
+static esp_err_t on_api_apply( httpd_req_t *req ) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "text/json");
+
+    reboot_delay(3);
+
+    httpd_resp_send_chunk(req, NULL, 0); // end chunk
+    return ESP_OK;    
+}
+
+
+static esp_err_t on_api_setAP( httpd_req_t *req ) {
+    char content[100];
+
+    /* Truncate if content length larger than the buffer */
+    size_t recv_size = MIN(req->content_len, sizeof(content));
+
+    int ret = httpd_req_recv(req, content, recv_size);
+    if (ret <= 0) {  /* 0 return value indicates connection closed */
+        /* Check if timeout occurred */
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            /* In case of timeout one can choose to retry calling
+             * httpd_req_recv(), but to keep it simple, here we
+             * respond with an HTTP 408 (Request Timeout) error */
+            httpd_resp_send_408(req);
+        }
+        /* In case of error, returning ESP_FAIL will
+         * ensure that the underlying socket is closed */
+        return ESP_FAIL;
+    }
+    content[recv_size] = '\0';
+
+    jparse_ctx_t jctx;
+    char str_val[64];
+
+	ret = json_parse_start(&jctx, content, strlen(content));
+	if (ret == OS_SUCCESS) {
+        if (json_obj_get_string(&jctx, "ssid", str_val, sizeof(str_val)) == OS_SUCCESS) {
+            printf("ssid %s\n", str_val);
+            nvs_set(KEY_SSID, str_val);
+        }
+
+        if (json_obj_get_string(&jctx, "passwd", str_val, sizeof(str_val)) == OS_SUCCESS) {
+            printf("passwd %s\n", str_val);   
+            nvs_set(KEY_PASSWD, str_val);  
+        }
+    }   
+
+    nvs_get(KEY_SSID, str_val);
+    printf("read SSID: %s\n", str_val);
+
+   
+    nvs_get(KEY_PASSWD, str_val);
+    printf("read password: %s\n", str_val); 
+
+    reboot_delay(5);
+
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "text/json");
+
+    httpd_resp_send_chunk(req, NULL, 0); // end chunk
+    return ESP_OK;
+}
 
 static esp_err_t on_api_scan( httpd_req_t *req ) {
     printf("httd Request: on_api_scan");
@@ -249,6 +332,22 @@ static httpd_handle_t start_webserver(void)
         //.user_ctx = server_data
     };
     httpd_register_uri_handler(server, &api_scan);
+
+    httpd_uri_t api_setAP = {
+        .uri = "/api/setAP",
+        .method = HTTP_POST,
+        .handler = on_api_setAP,
+        //.user_ctx = server_data
+    };
+    httpd_register_uri_handler(server, &api_setAP);
+
+    httpd_uri_t api_apply = {
+        .uri = "/api/apply",
+        .method = HTTP_GET,
+        .handler = on_api_apply,
+        //.user_ctx = server_data
+    };
+    httpd_register_uri_handler(server, &api_apply);    
 
     httpd_uri_t default_url = {
         .uri = "/*",
