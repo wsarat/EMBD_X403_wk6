@@ -32,7 +32,7 @@ const App = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch('http://esp32-54d4.local/api/scan');
+        const response = await fetch('/api/scan');
         const data = await response.json();
         setData(data.ap_list);
       } catch (error) {
@@ -58,7 +58,7 @@ const App = () => {
 
     const postData = async (jsonData) => {
         try {
-          const response = await fetch('http://esp32-54d4.local/api/setAP', {  // Enter your IP address here
+          const response = await fetch('/api/setAP', {  // Enter your IP address here
             method: 'POST', 
             mode: 'cors', 
             body: JSON.stringify(jsonData) // body data type must match "Content-Type" header

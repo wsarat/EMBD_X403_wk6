@@ -304,7 +304,7 @@ void wifi_init() {
     _netif_init();
 
     esp_err_t ret = ESP_FAIL;
-    char ssid[16];
+    char ssid[32];
     char password[32];
 
     if ( nvs_get(KEY_SSID, ssid) == ESP_OK 
