@@ -14,6 +14,8 @@ static EventGroupHandle_t s_wifi_event_group;
 
 #define DEFAULT_SCAN_LIST_SIZE 10
 
+static bool wifi_sta_mode = 1;
+
 void get_device_name(char *device_name) {
     esp_err_t ret = ESP_FAIL;
     const uint8_t mac[6];    
@@ -49,17 +51,19 @@ static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < WIFI_MAXIMUM_RETRY) {
+        if (wifi_sta_mode)
             esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(WIFI_TAG, "retry to connect to the AP");
-        } else {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (wifi_sta_mode) {
+            if (s_retry_num < WIFI_MAXIMUM_RETRY) {
+                esp_wifi_connect();
+                s_retry_num++;
+                ESP_LOGI(WIFI_TAG, "retry to connect to the AP");
+            } else {
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            }
+            ESP_LOGI(WIFI_TAG,"connect to the AP fail");
         }
-        ESP_LOGI(WIFI_TAG,"connect to the AP fail");
-
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(WIFI_TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
@@ -300,7 +304,6 @@ void wifi_init() {
     _netif_init();
 
     esp_err_t ret = ESP_FAIL;
-    bool wifi_sta_mode = 1;
     char ssid[16];
     char password[32];
 
@@ -309,8 +312,10 @@ void wifi_init() {
 
         ESP_LOGI(WIFI_TAG, "SSID: %s, Password: %s", ssid, password);
         
-        if (strlen(ssid) == 0 || strlen(password) == 0 )
+        if (strlen(ssid) == 0 || strlen(password) == 0 ) {
+            ESP_ERROR_CHECK(esp_wifi_stop());
             wifi_sta_mode = 0; // AP mode
+        }
         
     } else {
         wifi_sta_mode = 0; // AP mode

@@ -31,6 +31,7 @@ static const httpd_uri_t root = {
 */
 void reboot() {
     ESP_LOGE(HTTPSERVER_TAG, "Apply setting, Reboot!");
+    nvs_flash_deinit();
     esp_restart();
 }
 

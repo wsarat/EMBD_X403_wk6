@@ -121,7 +121,7 @@ esp_err_t nvs_set(const char *key, char *value) {
 esp_err_t nvs_get(const char *key, char *out_value) {
     nvs_handle_t my_handle;
     esp_err_t err;
-    size_t required_size;
+    size_t required_size = 32;
 
     // Open
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
@@ -131,6 +131,7 @@ esp_err_t nvs_get(const char *key, char *out_value) {
     }
 
     err= nvs_get_str(my_handle, key, out_value, &required_size);
+    //printf("get %s: %s\n", key, out_value);
     if (err != ESP_OK) { 
         ESP_LOGE(FS_TAG, "nvs_get_str for key:%s error", key ); 
         return err;
